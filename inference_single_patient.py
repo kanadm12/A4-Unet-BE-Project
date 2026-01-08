@@ -166,11 +166,11 @@ def main():
     # Create output directory
     OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
     
-    # Load model (use num_channels=64 to match HuggingFace checkpoint)
+    # Load model (use num_channels=128 to match HuggingFace checkpoint)
     logging.info("Loading A4-Unet model...")
     model = create_a4unet_model(
         image_size=INPUT_SIZE,
-        num_channels=64,
+        num_channels=128,
         num_res_blocks=2,
         num_classes=2,
         learn_sigma=True,
