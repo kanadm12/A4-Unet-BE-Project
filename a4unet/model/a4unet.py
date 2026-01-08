@@ -366,7 +366,7 @@ class UNetModel_newpreview(nn.Module):
                             in_channels=ich,
                             emb_channels=time_embed_dim,
                             gating_channels=gating_ch,
-                            inter_channels=ich // 2,
+                            inter_channels=None,  # Auto-calculate as in_channels // 2
                             sub_sample_factor=self.attention_dsample,
                             mode=self.nonlocal_mode,
                         )
