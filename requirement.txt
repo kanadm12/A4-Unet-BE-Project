@@ -9,3 +9,7 @@ matplotlib
 batchgenerators
 visdom
 torchsummary
+timm
+tensorboard
+pillow
+tqdm
