@@ -288,7 +288,9 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
                 
                 # Save model state dict with mask values
                 state_dict = model.state_dict()
-                state_dict['mask_values'] = dataset.mask_values
+                # Access original dataset if using Subset
+                original_dataset = dataset.dataset if hasattr(dataset, 'dataset') else dataset
+                state_dict['mask_values'] = original_dataset.mask_values
                 torch.save(state_dict, str(dir_checkpoint / 'sspp_checkpoint_epoch{}.pth'.format(epoch)))
                 logging.info(f'Checkpoint {epoch} saved!')
 
