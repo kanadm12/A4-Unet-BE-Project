@@ -179,6 +179,9 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
                     # Get model predictions
                     masks_pred = model(images)
                     
+                    # Clamp predictions to prevent extreme values
+                    masks_pred = torch.clamp(masks_pred, min=-100, max=100)
+                    
                     # Calculate loss based on number of classes
                     if model.n_classes == 1:
                         # Binary segmentation: BCE + Dice loss
@@ -196,7 +199,16 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
                 # Backward pass and optimization
                 optimizer.zero_grad(set_to_none=True)  # Clear gradients
                 grad_scaler.scale(loss).backward()  # Backward pass with gradient scaling
-                torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clipping)  # Gradient clipping
+                
+                # Check for NaN/Inf in loss before clipping gradients
+                if not torch.isfinite(loss):
+                    logging.warning(f'NaN/Inf loss detected at epoch {epoch}, step {global_step}. Skipping batch.')
+                    continue
+                
+                # Clip gradients to prevent exploding gradients
+                grad_scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clipping)
+                
                 grad_scaler.step(optimizer)  # Optimizer step
                 grad_scaler.update()  # Update gradient scaler
                 
