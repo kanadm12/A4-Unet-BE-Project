@@ -129,11 +129,20 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
         optimizer = optim.RMSprop(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=5)  # Maximize Dice score
     else:
-        # A4-UNet: AdamW optimizer (no scheduler)
-        optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.0)
+        # A4-UNet: AdamW optimizer with learning rate warmup
+        optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01, eps=1e-8)
+        # Add warmup scheduler to stabilize early training
+        from a4unet.model.lr_scheduler import LinearWarmupCosineAnnealingLR
+        scheduler = LinearWarmupCosineAnnealingLR(
+            optimizer,
+            warmup_epochs=5,
+            max_epochs=epochs,
+            warmup_start_lr=learning_rate * 0.01,
+            eta_min=learning_rate * 0.01
+        )
     
     # Mixed precision training setup
-    grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
+    grad_scaler = torch.amp.GradScaler('cuda', enabled=amp)
     
     # Loss function: CrossEntropy for multi-class, BCE for binary
     criterion = nn.CrossEntropyLoss() if model.n_classes > 1 else nn.BCEWithLogitsLoss()
@@ -228,9 +237,12 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
             # Run evaluation on validation set
             val_score = evaluate(model, val_loader, device, amp, datasets, False)
             
-            # Update learning rate scheduler (only for standard UNet)
+            # Update learning rate scheduler
             if not a4unet:
                 scheduler.step(val_score[0])  # Step based on Dice score
+            else:
+                scheduler.step()  # Step warmup/cosine annealing
+                logging.info(f'Learning rate: {optimizer.param_groups[0]["lr"]:.2e}')
             
             # Log validation results
             logging.info('Validation Dice score: {}'.format(val_score[0]))
