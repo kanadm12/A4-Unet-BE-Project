@@ -334,6 +334,9 @@ class UNetModel_newpreview(nn.Module):
         
         self._feature_size += ch
 
+        # Store bottleneck output channels for attention gates
+        gating_ch = 512  # ASPP output channels
+        
         # 解码器组块 level与mult均为倒序, 解码器一共len(channel_mult)个卷积块, 与编码器一样
         self.output_blocks = nn.ModuleList([])
         self.layer_gate_attn = nn.ModuleList()
@@ -362,8 +365,8 @@ class UNetModel_newpreview(nn.Module):
                         GridAttentionBlock2D(
                             in_channels=ich,
                             emb_channels=time_embed_dim,
-                            gating_channels=512,
-                            inter_channels=ich,
+                            gating_channels=gating_ch,
+                            inter_channels=ich // 2,
                             sub_sample_factor=self.attention_dsample,
                             mode=self.nonlocal_mode,
                         )
