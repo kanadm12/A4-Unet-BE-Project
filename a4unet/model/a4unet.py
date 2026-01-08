@@ -450,16 +450,17 @@ class UNetModel_newpreview(nn.Module):
         h = x.type(self.dtype)
         
         # 编码器模块 - 保存所有encoder特征用于skip connections
-        # Decoder expects (num_res_blocks + 1) features per level = 16 total features
-        # Input block (ind=0) + 15 blocks from loop = 16 blocks total
-        # CRITICAL: Save features BEFORE applying DLKA to match construction-time channel recording
+        # CRITICAL: input_block_chans has 15 values (doesn't include input block channels)
+        # So we must save 15 features, NOT including the input block (ind=0)
+        # Save features BEFORE applying DLKA to match construction-time channel recording
         ind_DLKA = 0
         for ind, module in enumerate(self.input_blocks):
             h = module(h)
-            # Save features BEFORE DLKA application (construction records channels before DLKA)
-            hs.append(h)
+            # Save features AFTER first block (skip input block at ind=0)
+            if ind > 0:
+                hs.append(h)
             if ind == 0:  # Only print first time
-                print(f"[FORWARD] Encoder block {ind}: saved feature with shape {h.shape}")
+                print(f"[FORWARD] Encoder block {ind}: SKIPPED (input block)")
             # Apply DLKA blocks after ResBlocks, before/at downsampling points
             # Pattern: input(0) -> res(1) -> res(2) -> [DLKA] -> down(3) -> res(4) -> res(5) -> [DLKA] -> down(6)...
             # DLKA applies at indices: 2, 5, 8, 11 (after num_res_blocks, before downsample)
