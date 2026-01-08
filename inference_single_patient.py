@@ -15,9 +15,9 @@ from tqdm import tqdm
 from a4unet.model.a4unet import create_a4unet_model
 
 # Configuration
-CHECKPOINT_PATH = 'a4unet_huggingface.pth'
-PATIENT_FOLDER = Path('./data/MICCAI_BraTS2020_TrainingData/BraTS20_Training_001')
-OUTPUT_FOLDER = Path('./predictions')
+CHECKPOINT_PATH = 'checkpoints/a4unet_huggingface.pth'
+PATIENT_FOLDER = Path('data/MICCAI_BraTS2020_TrainingData/BraTS20_Training_001')
+OUTPUT_FOLDER = Path('predictions')
 INPUT_SIZE = 128
 
 def load_patient_volumes(patient_folder):
