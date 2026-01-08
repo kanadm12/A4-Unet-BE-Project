@@ -483,6 +483,10 @@ class UNetModel_newpreview(nn.Module):
             
             # Apply attention gate at first block of each level (0, 3, 6, 9)
             if ind % (self.num_res_blocks + 1) == 0 and attn_idx < len(self.layer_gate_attn):
+                enc_feat = self.layer_gate_attn[attn_idx](enc_feat, gating)
+                attn_idx += 1
+            
+            # Concatenate decoder features with filtered encoder features
             h = th.cat([h, enc_feat], dim=1)
             
             # 通过decoder block
