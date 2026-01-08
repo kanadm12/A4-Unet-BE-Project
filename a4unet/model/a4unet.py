@@ -486,15 +486,14 @@ class UNetModel_newpreview(nn.Module):
             enc_feat = hs.pop()
             print(f"[FORWARD] Decoder block {ind}: popped enc_feat with shape {enc_feat.shape}")
             
-            # Apply attention gate only at the START of each level (i==0), skipping the first level
-            # Attention gates created at: Level 4 Block 0, Level 3 Block 0, Level 2 Block 0, Level 1 Block 0
+            # Apply attention gate at the START of each level, matching construction order
+            # Attention gates created for: Level 4 (ich=512), Level 3 (ich=384), Level 2 (ich=256), Level 1 (ich=128)
             # Decoder blocks: 0-2 (Level 4), 3-5 (Level 3), 6-8 (Level 2), 9-11 (Level 1), 12-14 (Level 0)
-            # Apply attention gates at decoder blocks: 3, 6, 9, 12 (start of levels 3,2,1,0)
-            level = ind // (self.num_res_blocks + 1)
+            # Apply attention gates at decoder blocks: 0, 3, 6, 9 (first block of levels 4,3,2,1)
             block_in_level = ind % (self.num_res_blocks + 1)
             
-            # Apply attention gate at first block of each level, except the very first level (level 4)
-            if block_in_level == 0 and level > 0 and attn_idx < len(self.layer_gate_attn):
+            # Apply attention gate at first block of each level where it was created (levels 4,3,2,1 not 0)
+            if block_in_level == 0 and attn_idx < len(self.layer_gate_attn):
                 print(f"[FORWARD] Applying attention gate {attn_idx} (expects {self.layer_gate_attn[attn_idx].in_channels} channels) to enc_feat shape {enc_feat.shape}")
                 enc_feat = self.layer_gate_attn[attn_idx](enc_feat, gating)
                 attn_idx += 1
