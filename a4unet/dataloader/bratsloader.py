@@ -194,19 +194,12 @@ class BRATSDataset3D(torch.utils.data.Dataset):
         self.slices_per_volume = 155  # Standard number of slices in BraTS volumes
 
         # Define MRI sequence types based on dataset version and mode
-        # if test_flag:
-        #     self.seqtypes = ['t1', 't1ce', 't2', 'flair']
-        # else:
-        #     self.seqtypes = ['t1', 't1ce', 't2', 'flair', 'seg']
-        
-        # if BraTS 2021 #
         if test_flag:
             # Test mode: only imaging sequences
-            self.seqtypes = ['t1n', 't1c', 't2w', 't2f']
+            self.seqtypes = ['t1', 't1ce', 't2', 'flair']
         else:
             # Train mode: imaging sequences + segmentation
-            self.seqtypes = ['t1n', 't1c', 't2w', 't2f', 'seg']
-        # ============= #
+            self.seqtypes = ['t1', 't1ce', 't2', 'flair', 'seg']
 
         self.seqtypes_set = set(self.seqtypes)
         
@@ -235,11 +228,8 @@ class BRATSDataset3D(torch.utils.data.Dataset):
                 for filename in files:
                     if filename.endswith('.nii.gz') or filename.endswith('.nii'):
                         try:
-                            # seqtype = f.split('_')[3].split('.')[0]
-                            # if BraTS 2021 #
-                            # BraTS 2021 naming: extract sequence type from 5th component (0-indexed 4th)
-                            seqtype = filename.split('-')[4].split('.')[0]
-                            # ============= #
+                            # BraTS 2020 naming: extract sequence type from 4th component
+                            seqtype = filename.split('_')[3].split('.')[0]
                             datapoint[seqtype] = os.path.join(root, filename)
                         except IndexError:
                             print(f"Warning: Unexpected filename format: {filename}")
