@@ -65,10 +65,10 @@ class BRATSDataset(torch.utils.data.Dataset):
                 
                 # Extract sequence type from each filename and store path
                 for filename in files:
-                    if filename.endswith('.nii.gz'):
+                    if filename.endswith('.nii.gz') or filename.endswith('.nii'):
                         # Extract sequence type from filename (4th component after splitting by '_')
                         try:
-                            seqtype = filename.split('_')[3]
+                            seqtype = filename.split('_')[3].split('.')[0]
                             datapoint[seqtype] = os.path.join(root, filename)
                         except IndexError:
                             print(f"Warning: Unexpected filename format: {filename}")
@@ -233,7 +233,7 @@ class BRATSDataset3D(torch.utils.data.Dataset):
                 
                 # Extract sequence type from each filename
                 for filename in files:
-                    if filename.endswith('.nii.gz'):
+                    if filename.endswith('.nii.gz') or filename.endswith('.nii'):
                         try:
                             # seqtype = f.split('_')[3].split('.')[0]
                             # if BraTS 2021 #
