@@ -278,7 +278,7 @@ class UNetModel_newpreview(nn.Module):
             # 最后一个level不额外添加下采样层
             if level != len(channel_mult) - 1:
                 out_ch = ch
-                self.DLKA_blocks.append(deformableLKABlock(dim=out_ch).to('cuda:0'))
+                self.DLKA_blocks.append(deformableLKABlock(dim=out_ch))
                 self.input_blocks.append(nn.Sequential(ResBlock(ch, time_embed_dim, dropout, out_channels=out_ch, dims=dims, use_checkpoint=use_checkpoint, 
                                                                 use_scale_shift_norm=use_scale_shift_norm, down=True)
                         if resblock_updown else Downsample(ch, conv_resample, dims=dims, out_channels=out_ch)))
@@ -288,7 +288,7 @@ class UNetModel_newpreview(nn.Module):
                 ds *= 2
                 self._feature_size += ch
             if level == len(channel_mult) - 1:
-                self.DLKA_blocks.append(deformableLKABlock(dim=ch).to('cuda:0'))
+                self.DLKA_blocks.append(deformableLKABlock(dim=ch))
         
         # 中间层组块
         self.middle_block = nn.Sequential(ResBlock(ch, time_embed_dim, dropout, dims=dims, use_checkpoint=use_checkpoint, use_scale_shift_norm=use_scale_shift_norm),
@@ -335,40 +335,58 @@ class UNetModel_newpreview(nn.Module):
 
         # 解码器组块 level与mult均为倒序, 解码器一共len(channel_mult)个卷积块, 与编码器一样
         self.output_blocks = nn.ModuleList([])
-        self.layer_gate_attn = []
+        self.layer_gate_attn = nn.ModuleList()
 
         # 与编码器for循环的区别就是倒序而已
         for level, mult in list(enumerate(channel_mult))[::-1]:
-            # 注意解码器每层3个卷积块, 而编码器每层2个卷积块
-            for i in range(3):
-                # ich = input_block_chans.pop()
-                if i == 0:
-                    ich = input_block_chans.pop()
-                    layers = [ResBlock(ch + ich, time_embed_dim, dropout, out_channels=model_channels * mult, dims=dims, use_checkpoint=use_checkpoint, use_scale_shift_norm=use_scale_shift_norm)]
-                # elif i != 3:
-                #     layers = [nn.Conv2d(ch * 2, ch, 1, bias=False),
-                #               ResBlock(ch, time_embed_dim, dropout, out_channels=model_channels * mult, dims=dims, use_checkpoint=use_checkpoint, use_scale_shift_norm=use_scale_shift_norm)]
-                else:
-                    layers = [ResBlock(ch, time_embed_dim, dropout, out_channels=model_channels * mult, dims=dims, use_checkpoint=use_checkpoint, use_scale_shift_norm=use_scale_shift_norm)]
-
-            ch = model_channels * mult
-
-            # 末尾层不额外加卷积层, 其余每层都在末尾额外增加1个Upsample
-            if level and i == num_res_blocks:
-                out_ch = ch # 512, 384, 256, 128.
+            # 每层有num_res_blocks + 1个块 (包括上采样块)
+            for i in range(num_res_blocks + 1):
+                ich = input_block_chans.pop()
+                layers = [
+                    ResBlock(
+                        ch + ich,
+                        time_embed_dim,
+                        dropout,
+                        out_channels=model_channels * mult,
+                        dims=dims,
+                        use_checkpoint=use_checkpoint,
+                        use_scale_shift_norm=use_scale_shift_norm,
+                    )
+                ]
+                ch = model_channels * mult
                 
-                layers.append(ResBlock(ch, time_embed_dim, dropout, out_channels=out_ch, dims=dims,
-                                       use_checkpoint=use_checkpoint,
-                                       use_scale_shift_norm=use_scale_shift_norm, up=True)
-                                       if resblock_updown else Upsample(ch, conv_resample, dims=dims, out_channels=out_ch))
-
-                ########## Attention Gate #############
-                self.layer_gate_attn.append(GridAttentionBlock2D(in_channels=ch, emb_channels=time_embed_dim, gating_channels=512,
-                                            inter_channels=ch, sub_sample_factor=self.attention_dsample,
-                                            mode=self.nonlocal_mode).to('cuda:0'))
-                #######################################
-
-                ds //= 2
+                # 在每个level的第一个块添加attention gate (用于过滤skip connection)
+                if i == 0 and level > 0:
+                    self.layer_gate_attn.append(
+                        GridAttentionBlock2D(
+                            in_channels=ich,
+                            emb_channels=time_embed_dim,
+                            gating_channels=512,
+                            inter_channels=ich,
+                            sub_sample_factor=self.attention_dsample,
+                            mode=self.nonlocal_mode,
+                        )
+                    )
+                
+                # 末尾层不额外加上采样层, 其余每层都在末尾额外增加1个Upsample
+                if level and i == num_res_blocks:
+                    out_ch = ch
+                    layers.append(
+                        ResBlock(
+                            ch,
+                            time_embed_dim,
+                            dropout,
+                            out_channels=out_ch,
+                            dims=dims,
+                            use_checkpoint=use_checkpoint,
+                            use_scale_shift_norm=use_scale_shift_norm,
+                            up=True,
+                        )
+                        if resblock_updown
+                        else Upsample(ch, conv_resample, dims=dims, out_channels=out_ch)
+                    )
+                    ds //= 2
+                
                 self.output_blocks.append(nn.Sequential(*layers))
                 self._feature_size += ch
 
@@ -419,59 +437,73 @@ class UNetModel_newpreview(nn.Module):
         return self.hwm(x, hs = None)
 
     def forward(self, x, y=None): # (self, x, timesteps, y=None):
-        hs=[]
+        hs = []
         
-        # 做一些前期准备工作: 转换输入值至固定type, 从输入值中取得图片, 取得anchor与calibration
+        # 转换输入值至固定type
         h = x.type(self.dtype)
         
-        # 编码器模块 从此输入值正式进入去噪网络
+        # 编码器模块 - 保存所有encoder特征用于skip connections
         ind_DLKA = 0
         for ind, module in enumerate(self.input_blocks):
-            # 向第1个解码器卷积块输入anch, 注意是在输入层后, 第1个解码器卷积块前拼接anch
             h = module(h)
-            if (ind - 2) % 3 == 0:
+            # Apply DLKA blocks after ResBlocks, before/at downsampling points
+            # Pattern: input(0) -> res(1) -> res(2) -> [DLKA] -> down(3) -> res(4) -> res(5) -> [DLKA] -> down(6)...
+            # DLKA applies at indices: 2, 5, 8, 11 (after num_res_blocks, before downsample)
+            if ind > 0 and ind % 3 == 2 and ind_DLKA < len(self.DLKA_blocks):
                 _, _, H, W = h.shape
                 h = self.DLKA_blocks[ind_DLKA](h, H, W)
-                # 将特征层逐卷积块记录, 用于与解码器特征层concat, 注意一共4层, 12个卷积块
-                hs.append(h)
                 ind_DLKA += 1
+            # 保存所有特征层用于skip connections
+            hs.append(h)
         
         # 中间嵌入层模块
         h = self.middle_block(h)
-        ################ ASPP ##################
-        # # Feature fusion -- ASPP.
+        ################ SSPP - Swin Spatial Pyramid Pooling ##################
         h = h.permute(0, 2, 3, 1)
         h = self.aspp(h)
         h = h.permute(0, 3, 1, 2)
 
-        # Spatial attention -- Attention gate.
+        # Gating signal for attention gates
         gating = self.gating(h)
-        # h = self.bottleneck(h)
         ########################################
 
-        # 解码器模块
+        # 解码器模块 - 使用skip connections和attention gates
+        attn_idx = 0
         for ind, module in enumerate(self.output_blocks):
+            # 获取对应的encoder特征
+            enc_feat = hs.pop()
             
+            # 在concatenation前应用attention gate过滤encoder特征
+            if attn_idx < len(self.layer_gate_attn):
+                enc_feat = self.layer_gate_attn[attn_idx](enc_feat, gating)
+                attn_idx += 1
+            
+            # Concatenate decoder features with filtered encoder features
+            h = th.cat([h, enc_feat], dim=1)
+            
+            # 通过decoder block
             h = module(h)
-            if ind != 3:
-                # h = th.cat([h, hs.pop()], dim=1)
-                # h = module(h)
-                h = self.layer_gate_attn[ind](h, gating)
-                if ind == 0:
-                    h = self.FCA4(h)
-                if ind == 1:
-                    h = self.FCA3(h)
-                if ind == 2:
-                    h = self.FCA2(h)
-            else:
+            
+            # Apply CAM (Combined Attention Module): FCA + Spatial Attention
+            # 根据decoder level应用对应的FCA
+            level = ind // (self.num_res_blocks + 1)
+            if level == 0:
+                h = self.FCA4(h)
+            elif level == 1:
+                h = self.FCA3(h)
+            elif level == 2:
+                h = self.FCA2(h)
+            elif level == 3:
                 h = self.FCA1(h)
+            
+            # Spatial attention
             h = self.SA(h) * h
             
-        h = h.type(x.dtype) # 类型转换
+        h = h.type(x.dtype)
 
         # 最终输出层
-        out = self.out(h) # 输出层是一个卷积层, 标准卷积层包括Conv、BatchNorm、SiLU三个操作
-        return out # return out, cal
+        out = self.out(h)
+        return out
 
 
 class ResBlock(nn.Module): # 这个残差块也继承了时序块的属性, 就是单纯将其与正常模块区分开
