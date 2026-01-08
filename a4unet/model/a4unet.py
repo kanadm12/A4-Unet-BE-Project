@@ -342,10 +342,12 @@ class UNetModel_newpreview(nn.Module):
         self.layer_gate_attn = nn.ModuleList()
 
         # 与编码器for循环的区别就是倒序而已
+        print(f"[CONSTRUCTION] input_block_chans has {len(input_block_chans)} values: {input_block_chans}")
         for level, mult in list(enumerate(channel_mult))[::-1]:
             # 每层有num_res_blocks + 1个块 (包括上采样块)
             for i in range(num_res_blocks + 1):
                 ich = input_block_chans.pop()
+                print(f"[CONSTRUCTION] Level {level}, Block {i}: popped ich={ich}")
                 layers = [
                     ResBlock(
                         ch + ich,
@@ -361,6 +363,7 @@ class UNetModel_newpreview(nn.Module):
                 
                 # 在每个level的第一个块添加attention gate (用于过滤skip connection)
                 if i == 0 and level > 0:
+                    print(f"[CONSTRUCTION] Creating attention gate for level {level}: in_channels={ich}")
                     self.layer_gate_attn.append(
                         GridAttentionBlock2D(
                             in_channels=ich,
@@ -455,6 +458,8 @@ class UNetModel_newpreview(nn.Module):
             h = module(h)
             # Save features BEFORE DLKA application (construction records channels before DLKA)
             hs.append(h)
+            if ind == 0:  # Only print first time
+                print(f"[FORWARD] Encoder block {ind}: saved feature with shape {h.shape}")
             # Apply DLKA blocks after ResBlocks, before/at downsampling points
             # Pattern: input(0) -> res(1) -> res(2) -> [DLKA] -> down(3) -> res(4) -> res(5) -> [DLKA] -> down(6)...
             # DLKA applies at indices: 2, 5, 8, 11 (after num_res_blocks, before downsample)
@@ -476,12 +481,17 @@ class UNetModel_newpreview(nn.Module):
 
         # 解码器模块 - 使用skip connections和attention gates
         attn_idx = 0
+        print(f"[FORWARD] Starting decoder, hs has {len(hs)} features")
         for ind, module in enumerate(self.output_blocks):
             # 获取对应的encoder特征
             enc_feat = hs.pop()
+            if ind == 0:  # Only print first iteration
+                print(f"[FORWARD] Decoder block {ind}: popped enc_feat with shape {enc_feat.shape}")
             
             # 在concatenation前应用attention gate过滤encoder特征
             if attn_idx < len(self.layer_gate_attn):
+                if ind == 0:
+                    print(f"[FORWARD] Applying attention gate {attn_idx} to enc_feat shape {enc_feat.shape}")
                 enc_feat = self.layer_gate_attn[attn_idx](enc_feat, gating)
                 attn_idx += 1
             
