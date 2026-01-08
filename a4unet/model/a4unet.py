@@ -473,10 +473,6 @@ class UNetModel_newpreview(nn.Module):
 
         # 解码器模块 - 使用skip connections和attention gates
         attn_idx = 0
-        print(f"[FORWARD] Starting decoder, hs has {len(hs)} features")
-        for ind, module in enumerate(self.output_blocks):
-            # 获取对应的encoder特征
-            enc_feat = hs.pop()
         for ind, module in enumerate(self.output_blocks):
             # 获取对应的encoder特征
             enc_feat = hs.pop()
