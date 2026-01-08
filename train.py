@@ -43,7 +43,7 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
                 val_percent: float = 0.5, val_step: float = 10, save_checkpoint: bool = True, 
                 img_scale: float = 0.5, amp: bool = False, a4unet: bool = False, datasets: str = 'Brats', 
                 input_size: int = 256, weight_decay: float = 1e-8, momentum: float = 0.999, 
-                gradient_clipping: float = 1.0):
+                gradient_clipping: float = 1.0, max_patients: int = None):
     """
     Main training function for medical image segmentation models.
     
@@ -64,6 +64,7 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
         weight_decay: Weight decay for optimizer
         momentum: Momentum for RMSprop optimizer
         gradient_clipping: Gradient clipping threshold
+        max_patients: Maximum number of patients to use (None = use all)
     """
     
     # =============================================================================
@@ -86,6 +87,11 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
             dataset = BRATSDataset3D(dir_brats, transform_train, test_flag=False)
         else:
             dataset = BasicDataset(dir_img, dir_mask, img_scale, a4unet, input_size)
+    
+    # Limit dataset size if max_patients is specified
+    if max_patients is not None and max_patients < len(dataset):
+        logging.info(f'Limiting dataset from {len(dataset)} to {max_patients} patients')
+        dataset = torch.utils.data.Subset(dataset, range(max_patients))
 
     # =============================================================================
     # 2. TRAIN/VALIDATION SPLIT
@@ -137,8 +143,8 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
             optimizer,
             warmup_epochs=5,
             max_epochs=epochs,
-            warmup_start_lr=learning_rate * 0.01,
-            eta_min=learning_rate * 0.01
+            warmup_start_lr=learning_rate * 0.1,  # Changed from 0.01 to 0.1 for faster warmup
+            eta_min=learning_rate * 0.1  # Changed from 0.01 to 0.1 to maintain minimum LR
         )
     
     # Mixed precision training setup
@@ -182,11 +188,21 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
                 # Move data to device with optimized memory format
                 images = images.to(device=device, dtype=torch.float32, memory_format=torch.channels_last)
                 true_masks = true_masks.to(device=device, dtype=torch.long)
+                
+                # Check for NaN/Inf in input data
+                if not torch.isfinite(images).all():
+                    logging.warning(f'NaN/Inf in input images at epoch {epoch}, step {global_step}. Skipping batch.')
+                    continue
 
                 # Forward pass with automatic mixed precision
                 with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=amp):
                     # Get model predictions
                     masks_pred = model(images)
+                    
+                    # Check for NaN/Inf in predictions before computing loss
+                    if not torch.isfinite(masks_pred).all():
+                        logging.warning(f'NaN/Inf in predictions at epoch {epoch}, step {global_step}. Skipping batch.')
+                        continue
                     
                     # Clamp predictions to prevent extreme values
                     masks_pred = torch.clamp(masks_pred, min=-100, max=100)
@@ -205,13 +221,25 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
                             multiclass=True
                         )
                 
+                # Check for NaN/Inf in loss BEFORE backward pass
+                if not torch.isfinite(loss):
+                    logging.warning(f'NaN/Inf loss detected at epoch {epoch}, step {global_step}. Skipping batch.')
+                    continue
+                
                 # Backward pass and optimization
                 optimizer.zero_grad(set_to_none=True)  # Clear gradients
                 grad_scaler.scale(loss).backward()  # Backward pass with gradient scaling
                 
-                # Check for NaN/Inf in loss before clipping gradients
-                if not torch.isfinite(loss):
-                    logging.warning(f'NaN/Inf loss detected at epoch {epoch}, step {global_step}. Skipping batch.')
+                # Check for NaN/Inf in gradients after backward pass
+                has_nan_grad = False
+                for name, param in model.named_parameters():
+                    if param.grad is not None and not torch.isfinite(param.grad).all():
+                        logging.warning(f'NaN/Inf gradient in {name} at epoch {epoch}, step {global_step}. Skipping batch.')
+                        has_nan_grad = True
+                        break
+                
+                if has_nan_grad:
+                    optimizer.zero_grad(set_to_none=True)
                     continue
                 
                 # Clip gradients to prevent exploding gradients
@@ -311,6 +339,7 @@ def get_args():
     # Dataset configuration
     parser.add_argument('--datasets',      '-d', type=str,      default='Brats', dest='datasets', help='Choose Dataset')
     parser.add_argument('--input_size',    '-i',  type=int,     default=128,   dest='input_size', help='Input Size of A4Unet')
+    parser.add_argument('--max-patients',  '-m',  type=int,     default=None,  dest='max_patients', help='Maximum number of patients to use (None = all)')
 
     return parser.parse_args()
 
@@ -389,7 +418,8 @@ if __name__ == '__main__':
             amp=args.amp, 
             a4unet=args.a4, 
             datasets=args.datasets, 
-            input_size=args.input_size
+            input_size=args.input_size,
+            max_patients=args.max_patients
         )
     except torch.cuda.CudaError as e:
         # Handle CUDA out of memory errors
@@ -413,5 +443,6 @@ if __name__ == '__main__':
             amp=args.amp, 
             a4unet=args.a4, 
             datasets=args.datasets, 
-            input_size=args.input_size
+            input_size=args.input_size,
+            max_patients=args.max_patients
         )
