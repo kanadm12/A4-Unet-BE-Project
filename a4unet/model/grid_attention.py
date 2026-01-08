@@ -33,8 +33,6 @@ class _GridAttentionBlockND(nn.Module):
             self.inter_channels = in_channels // 2
             if self.inter_channels == 0:
                 self.inter_channels = 1
-        
-        print(f"[GridAttentionBlock.__init__] in_channels={in_channels}, inter_channels={self.inter_channels}, gating_channels={gating_channels}")
 
         if dimension == 3:
             conv_nd = nn.Conv3d

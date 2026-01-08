@@ -342,12 +342,10 @@ class UNetModel_newpreview(nn.Module):
         self.layer_gate_attn = nn.ModuleList()
 
         # 与编码器for循环的区别就是倒序而已
-        print(f"[CONSTRUCTION] input_block_chans has {len(input_block_chans)} values: {input_block_chans}")
         for level, mult in list(enumerate(channel_mult))[::-1]:
             # 每层有num_res_blocks + 1个块 (包括上采样块)
             for i in range(num_res_blocks + 1):
                 ich = input_block_chans.pop()
-                print(f"[CONSTRUCTION] Level {level}, Block {i}: popped ich={ich}")
                 layers = [
                     ResBlock(
                         ch + ich,
@@ -363,7 +361,6 @@ class UNetModel_newpreview(nn.Module):
                 
                 # 在每个level的第一个块添加attention gate (用于过滤skip connection)
                 if i == 0 and level > 0:
-                    print(f"[CONSTRUCTION] Creating attention gate for level {level}: in_channels={ich}")
                     self.layer_gate_attn.append(
                         GridAttentionBlock2D(
                             in_channels=ich,
@@ -450,15 +447,11 @@ class UNetModel_newpreview(nn.Module):
         h = x.type(self.dtype)
         
         # 编码器模块 - 保存所有encoder特征用于skip connections
-        # input_block_chans starts with [model_channels] for input block + 14 values from loop = 15 total
-        # So we must save ALL 15 block outputs INCLUDING the input block
-        # Save features BEFORE applying DLKA to match construction-time channel recording
         ind_DLKA = 0
         for ind, module in enumerate(self.input_blocks):
             h = module(h)
-            # Save features from ALL blocks including input block (ind=0)
+            # Save features from ALL blocks including input block
             hs.append(h)
-            print(f"[FORWARD] Encoder block {ind}: saved feature with shape {h.shape}")
             # Apply DLKA blocks after ResBlocks, before/at downsampling points
             # Pattern: input(0) -> res(1) -> res(2) -> [DLKA] -> down(3) -> res(4) -> res(5) -> [DLKA] -> down(6)...
             # DLKA applies at indices: 2, 5, 8, 11 (after num_res_blocks, before downsample)
@@ -484,21 +477,12 @@ class UNetModel_newpreview(nn.Module):
         for ind, module in enumerate(self.output_blocks):
             # 获取对应的encoder特征
             enc_feat = hs.pop()
-            print(f"[FORWARD] Decoder block {ind}: popped enc_feat with shape {enc_feat.shape}")
+        for ind, module in enumerate(self.output_blocks):
+            # 获取对应的encoder特征
+            enc_feat = hs.pop()
             
-            # Apply attention gate at the START of each level, matching construction order
-            # Attention gates created for: Level 4 (ich=512), Level 3 (ich=384), Level 2 (ich=256), Level 1 (ich=128)
-            # Decoder blocks: 0-2 (Level 4), 3-5 (Level 3), 6-8 (Level 2), 9-11 (Level 1), 12-14 (Level 0)
-            # Apply attention gates at decoder blocks: 0, 3, 6, 9 (first block of levels 4,3,2,1)
-            block_in_level = ind % (self.num_res_blocks + 1)
-            
-            # Apply attention gate at first block of each level where it was created (levels 4,3,2,1 not 0)
-            if block_in_level == 0 and attn_idx < len(self.layer_gate_attn):
-                print(f"[FORWARD] Applying attention gate {attn_idx} (expects {self.layer_gate_attn[attn_idx].in_channels} channels) to enc_feat shape {enc_feat.shape}")
-                enc_feat = self.layer_gate_attn[attn_idx](enc_feat, gating)
-                attn_idx += 1
-            
-            # Concatenate decoder features with filtered encoder features
+            # Apply attention gate at first block of each level (0, 3, 6, 9)
+            if ind % (self.num_res_blocks + 1) == 0 and attn_idx < len(self.layer_gate_attn):
             h = th.cat([h, enc_feat], dim=1)
             
             # 通过decoder block
