@@ -447,9 +447,9 @@ class UNetModel_newpreview(nn.Module):
         h = x.type(self.dtype)
         
         # 编码器模块 - 保存所有encoder特征用于skip connections
-        # We need to save features at ALL points where input_block_chans was populated
-        # During construction, input_block_chans.append(ch) is called after EVERY block (both ResBlocks and Downsamples)
-        # So we need to save features after every block except the input block
+        # Decoder expects (num_res_blocks + 1) features per level = 16 total features
+        # Input block (ind=0) + 15 blocks from loop = 16 blocks total
+        # We must save ALL block outputs including input block
         ind_DLKA = 0
         for ind, module in enumerate(self.input_blocks):
             h = module(h)
@@ -460,10 +460,9 @@ class UNetModel_newpreview(nn.Module):
                 _, _, H, W = h.shape
                 h = self.DLKA_blocks[ind_DLKA](h, H, W)
                 ind_DLKA += 1
-            # Save features after ALL blocks except input block (ind=0)
-            # This matches the construction where input_block_chans.append(ch) is called after every ResBlock and Downsample
-            if ind != 0:
-                hs.append(h)
+            # Save features after EVERY block including input block
+            # Decoder pops (num_res_blocks + 1) * len(channel_mult) = 16 times
+            hs.append(h)
         
         # 中间嵌入层模块
         h = self.middle_block(h)
