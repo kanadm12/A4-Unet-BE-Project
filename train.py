@@ -153,6 +153,7 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
     # Loss function: CrossEntropy for multi-class, BCE for binary
     criterion = nn.CrossEntropyLoss() if model.n_classes > 1 else nn.BCEWithLogitsLoss()
     global_step = 0  # Global step counter for logging
+    best_dice = 0.0  # Track best validation Dice score
 
     # =============================================================================
     # 5. TRAINING LOOP - EPOCH LEVEL
@@ -293,6 +294,12 @@ def train_model(model, device, epochs: int = 20, batch_size: int = 16, learning_
                 state_dict['mask_values'] = original_dataset.mask_values
                 torch.save(state_dict, str(dir_checkpoint / 'sspp_checkpoint_epoch{}.pth'.format(epoch)))
                 logging.info(f'Checkpoint {epoch} saved!')
+                
+                # Save best model if validation Dice improved
+                if val_score[0] > best_dice:
+                    best_dice = val_score[0]
+                    torch.save(state_dict, str(dir_checkpoint / 'best_model.pth'))
+                    logging.info(f'Best model saved! (Dice: {best_dice:.4f})')
 
 
 def validation_step(epoch, val_step):
