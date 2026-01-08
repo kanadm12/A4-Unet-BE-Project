@@ -21,8 +21,8 @@ from utils.dice_score import dice_loss
 from utils.data_loading import BasicDataset, CarvanaDataset
 
 from a4unet.dataloader.bratsloader import BRATSDataset3D
-from a4unet.a4unet import create_a4unet_model
-from model.unet import UNet
+from a4unet.model.a4unet import create_a4unet_model
+from a4unet.model.unet import UNet
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message="torch.meshgrid")
