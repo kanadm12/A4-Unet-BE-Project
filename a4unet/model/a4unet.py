@@ -240,7 +240,7 @@ class UNetModel_newpreview(nn.Module):
         # 维度、输入通道数、输出通道数、核心尺寸、步长(默认为1)、填充值
         self.input_blocks = nn.ModuleList([nn.Sequential(conv_nd(dims, in_channels, model_channels, 3, padding=1))])
 
-        c2wh = dict([(128, 56), (256, 28), (384, 14), (512, 7)])
+        c2wh = dict([(64, 56), (128, 56), (256, 28), (384, 14), (512, 7)])
         self.FCA4 = MultiSpectralAttentionLayer(model_channels * 4, c2wh[model_channels], c2wh[model_channels],
                                                 reduction=16, freq_sel_method='top16')
         self.FCA3 = MultiSpectralAttentionLayer(model_channels * 3, c2wh[model_channels], c2wh[model_channels],
