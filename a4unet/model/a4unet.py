@@ -458,8 +458,7 @@ class UNetModel_newpreview(nn.Module):
             h = module(h)
             # Save features from ALL blocks including input block (ind=0)
             hs.append(h)
-            if ind == 0:  # Only print first time
-                print(f"[FORWARD] Encoder block {ind}: saved feature with shape {h.shape}")
+            print(f"[FORWARD] Encoder block {ind}: saved feature with shape {h.shape}")
             # Apply DLKA blocks after ResBlocks, before/at downsampling points
             # Pattern: input(0) -> res(1) -> res(2) -> [DLKA] -> down(3) -> res(4) -> res(5) -> [DLKA] -> down(6)...
             # DLKA applies at indices: 2, 5, 8, 11 (after num_res_blocks, before downsample)
@@ -485,13 +484,11 @@ class UNetModel_newpreview(nn.Module):
         for ind, module in enumerate(self.output_blocks):
             # 获取对应的encoder特征
             enc_feat = hs.pop()
-            if ind == 0:  # Only print first iteration
-                print(f"[FORWARD] Decoder block {ind}: popped enc_feat with shape {enc_feat.shape}")
+            print(f"[FORWARD] Decoder block {ind}: popped enc_feat with shape {enc_feat.shape}")
             
             # 在concatenation前应用attention gate过滤encoder特征
             if attn_idx < len(self.layer_gate_attn):
-                if ind == 0:
-                    print(f"[FORWARD] Applying attention gate {attn_idx} to enc_feat shape {enc_feat.shape}")
+                print(f"[FORWARD] Applying attention gate {attn_idx} (expects {self.layer_gate_attn[attn_idx].in_channels} channels) to enc_feat shape {enc_feat.shape}")
                 enc_feat = self.layer_gate_attn[attn_idx](enc_feat, gating)
                 attn_idx += 1
             
