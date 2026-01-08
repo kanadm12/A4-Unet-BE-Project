@@ -261,7 +261,7 @@ class UNetModel_newpreview(nn.Module):
         self.DLKA_blocks = nn.ModuleList([])
 
         for level, mult in enumerate(channel_mult):
-            for _ in range(2):
+            for _ in range(num_res_blocks):
                 layers = [ResBlock(ch, time_embed_dim, dropout, out_channels=mult * model_channels,
                                    dims=dims, use_checkpoint=use_checkpoint, use_scale_shift_norm=use_scale_shift_norm)]
                 # 注意上一行这个ResBlock根本没有输入upsample和downsample参数,
@@ -269,9 +269,8 @@ class UNetModel_newpreview(nn.Module):
                 ch = mult * model_channels
                 self.input_blocks.append(nn.Sequential(*layers))
                 self._feature_size += ch
-            
-            # 记录每层Downsample前的特征层的通道数
-            input_block_chans.append(ch)
+                # 记录每个ResBlock后的通道数用于skip connections
+                input_block_chans.append(ch)
             
             # 注意这个if结构并没有在双层for循环内,
             # 而是在单层for循环内, 说明是在每个level最后添加的组件
@@ -285,6 +284,8 @@ class UNetModel_newpreview(nn.Module):
                 # 特别注意这个if else结构, 乍一看像是添加两个组件, 测试发现实际上是添加一个组件,
                 # 当resblock_updown为True时添加前面的ResBlock, 当为False时添加后面的Downsample
                 ch = out_ch
+                # 记录下采样后的通道数
+                input_block_chans.append(ch)
                 ds *= 2
                 self._feature_size += ch
             if level == len(channel_mult) - 1:
